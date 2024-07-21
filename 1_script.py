@@ -79,6 +79,8 @@ for col, header in enumerate(headers):
 unique_events = set()
 
 # Write each event directly to the Excel file
+now = datetime.datetime.now()
+print("Start time:", now)
 row_num = 1
 for r in regions:
     audit.base_client.set_region(r)
@@ -98,4 +100,7 @@ for r in regions:
                     excel_file = r"C:\Security\Blogs\Access_Analyzer\audit_events.xls"
                     wb.save(excel_file)
 
+
 print(f"Audit events have been written to {excel_file}.")
+now = datetime.datetime.now()
+print("End time:", now)
