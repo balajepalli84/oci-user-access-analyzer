@@ -1,7 +1,7 @@
 import oci
 import datetime
 import xlwt
-import re
+import re,sys
 
 def list_domain_users(domain):
     identity_domains_client = oci.identity_domains.IdentityDomainsClient(config, domain.url)
@@ -33,7 +33,6 @@ def list_domain_users(domain):
         next_page = response.next_page
     return users
 
-
 def get_filtered_policies(policies):
     def format_group_name(statement):
         match = re.search(r'allow group (\S+)', statement)
@@ -56,11 +55,14 @@ def get_filtered_policies(policies):
 
     policy_info_list = []
     for policy in policies.data:
-        filtered_statements = [
-            format_group_name(statement.lower()) 
-            for statement in policy.statements if 'allow group' in statement.lower()
-        ]
-        
+        filtered_statements = []
+        for statement in policy.statements:
+            statement_lower = statement.lower()
+            if 'allow group' in statement_lower:
+                filtered_statements.append(format_group_name(statement_lower))
+            elif 'any-user' in statement_lower or 'any-group' in statement_lower:
+                filtered_statements.append(statement_lower)
+
         if filtered_statements:
             policy_info_list.append({
                 'policy_name': policy.name,
@@ -78,14 +80,21 @@ def get_user_policies(user_info, policies):
         filtered_statements = policy['filtered_statements']
         
         for statement in filtered_statements:
-            for group in groups:
-                formatted_group_name = f"'{domain_display_name}'/'{group}'".lower()
-                if formatted_group_name in statement:
-                    results.append({
-                        'group_name': group,
-                        'policy_name': policy_name,
-                        'statement': statement
-                    })
+            if 'any-user' in statement or 'any-group' in statement:
+                results.append({
+                    'group_name': 'any-user/any-group',
+                    'policy_name': policy_name,
+                    'statement': statement
+                })
+            else:
+                for group in groups:
+                    formatted_group_name = f"'{domain_display_name}'/'{group}'".lower()
+                    if formatted_group_name in statement:
+                        results.append({
+                            'group_name': group,
+                            'policy_name': policy_name,
+                            'statement': statement
+                        })
     
     return results
 
@@ -111,14 +120,17 @@ print("Start time:", now)
 all_users = []
 domains = identity_client.list_domains(tenancy_id).data
 for domain in domains:
-    print(f"Fetching users for domain: {domain.display_name}")
-    domain_users = list_domain_users(domain)
-    all_users.extend(domain_users)
+    if domain.lifecycle_state == 'ACTIVE':
+        print(f"Fetching users for domain: {domain.display_name}")
+        domain_users = list_domain_users(domain)
+        all_users.extend(domain_users)
+    else:
+        print(f"Skip domain {domain.display_name}: Lifecycle - {domain.lifecycle_state}")
 
 policies = identity_client.list_policies(tenancy_id)
 policy_info_list = get_filtered_policies(policies)
 
-#get user polcies
+#get user policies
 row_num_users_policies = 1
 for user in all_users:
     user_policies = get_user_policies(user, policy_info_list)
@@ -133,9 +145,8 @@ for user in all_users:
             ws_users_policies.write(row_num_users_policies, 6, policy['statement'])
             row_num_users_policies += 1
 
-excel_file_events = r"user_policies.xls"
+excel_file_events = r"C:\Security\Blogs\Access_Analyzer\logs\user_policies.xls"
 wb_users_policies.save(excel_file_events)
 
 now = datetime.datetime.now()
 print("End time:", now)
-
